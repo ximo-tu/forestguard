@@ -241,7 +241,7 @@ async function diagnoseWithModel(payload) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model: process.env.AI_MODEL || 'llama-3.3-70b',
+      model: process.env.AI_MODEL || 'gpt-oss-120b',
       messages: [
         {
           role: 'system',
