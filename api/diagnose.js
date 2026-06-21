@@ -157,19 +157,11 @@ async function diagnoseWithModel(payload) {
     2
   );
 
-  const userContent = [
-    {
-      type: 'text',
-      text: `Assess this forest health case. Return only valid JSON matching the schema below exactly. For each possible cause, include sourceIds using only IDs from the curated source library. Do not invent citations.\n\nSchema:\n${JSON.stringify(diagnosisSchema(), null, 2)}\n\nCase:\n${textPayload}\n\nCurated source library:\n${sourceGuide}`
-    }
-  ];
+  const userText = `Assess this forest health case. Return only valid JSON matching the schema below exactly. For each possible cause, include sourceIds using only IDs from the curated source library. Do not invent citations.\n\nSchema:\n${JSON.stringify(diagnosisSchema(), null, 2)}\n\nCase:\n${textPayload}\n\nCurated source library:\n${sourceGuide}`;
 
-  if (payload.imageDataUrl) {
-    userContent.push({
-      type: 'image_url',
-      image_url: { url: payload.imageDataUrl }
-    });
-  }
+  const userContent = payload.imageDataUrl
+    ? [{ type: 'text', text: userText }, { type: 'image_url', image_url: { url: payload.imageDataUrl } }]
+    : userText;
 
   const response = await fetchWithRetry('https://api.cerebras.ai/v1/chat/completions', {
     method: 'POST',

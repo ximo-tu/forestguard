@@ -419,6 +419,7 @@ textarea:focus {
 .diagnosis-card {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
 .diagnosis-summary {
@@ -486,6 +487,9 @@ textarea:focus {
   border-radius: 8px;
   background: #fff;
   padding: 11px;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
 }
 
 .source-badges {
