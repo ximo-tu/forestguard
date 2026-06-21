@@ -562,6 +562,42 @@ textarea:focus {
   line-height: 1.45;
 }
 
+.treatment-block {
+  gap: 12px;
+}
+
+.treatment-entry {
+  border: 1px solid rgba(31, 106, 74, 0.22);
+  border-radius: 8px;
+  background: rgba(31, 106, 74, 0.04);
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.treatment-entry h5 {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--green-dark);
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.treatment-entry .simple-list li {
+  background: #fff;
+}
+
+.treatment-caveat {
+  border-left: 3px solid rgba(31, 106, 74, 0.4);
+  background: rgba(31, 106, 74, 0.06);
+  color: var(--green-dark);
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
 .forest-context {
   position: relative;
   display: flex;

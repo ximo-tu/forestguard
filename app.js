@@ -346,6 +346,7 @@ function renderDiagnosis(diagnosis) {
       ${renderCauseList(possibleCauses)}
       ${renderList('Evidence used', evidence)}
       ${renderList('Recommended next actions', nextActions)}
+      ${renderTreatment(possibleCauses)}
       ${riskFlags.length ? renderList('Risk flags', riskFlags) : ''}
       ${diagnosis.imageInterpretation ? renderList('Image note', [diagnosis.imageInterpretation]) : ''}
       ${questions.length ? renderList('Follow-up questions', questions) : ''}
@@ -422,6 +423,141 @@ function renderList(title, items) {
       <ul class="simple-list">
         ${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
       </ul>
+    </section>
+  `;
+}
+
+const TREATMENT_GUIDE = {
+  'oak wilt': {
+    heading: 'Oak Wilt',
+    steps: [
+      'There is no cure for an actively infected tree — remove it promptly and chip or burn material on-site to prevent spread.',
+      'Sever root connections to neighbors using a vibratory plow or trenching to at least 1.2 m depth before removal.',
+      'Avoid all pruning wounds on oaks from April through July when sap beetles that vector the fungus are active.',
+      'For high-value trees within 100 m of a confirmed infection, a licensed arborist can apply propiconazole (e.g., Alamo) as a preventive trunk injection.'
+    ]
+  },
+  'dutch elm': {
+    heading: 'Dutch Elm Disease',
+    steps: [
+      'Infected trees cannot be cured once the disease is systemic — remove and dispose of wood promptly (do not store as firewood).',
+      'Prune flagging branches at least 3–4 m below the visible wilt to slow spread, disinfecting tools between cuts.',
+      'Avoid wounding elms from April through August when bark beetles that carry the pathogen are most active.',
+      'High-value elms can be protected with a licensed fungicide injection (propiconazole or thiabendazole) before infection occurs.'
+    ]
+  },
+  'phytophthora': {
+    heading: 'Phytophthora / Sudden Oak Death',
+    steps: [
+      'Remove and destroy heavily cankered branches; bag or burn material rather than chipping it on-site.',
+      'Apply a phosphonate product (e.g., Agri-Fos) as a bark spray or trunk injection — this suppresses but does not eliminate the pathogen.',
+      'Improve site drainage and avoid overhead irrigation to reduce conditions favorable for spore spread.',
+      'Infected tanoaks and bay laurel are major inoculum sources; consult your state forestry agency for regulated disposal requirements.'
+    ]
+  },
+  'ash borer': {
+    heading: 'Emerald Ash Borer',
+    steps: [
+      'Trees with more than 50% canopy loss are generally not worth treating; remove them promptly as they become hazardous quickly.',
+      'For trees with less than 50% canopy loss, a licensed applicator can inject emamectin benzoate (TREE-äge) or apply imidacloprid as a soil drench.',
+      'Treat in spring before adult emergence; repeat every 1–2 years depending on product label.',
+      'Do not move ash firewood, logs, or branches outside a regulated quarantine area — this is the primary way the pest spreads.'
+    ]
+  },
+  'bark beetle': {
+    heading: 'Bark Beetles',
+    steps: [
+      'Actively infested trees cannot be saved — fell and immediately remove, debark, chip, or burn material to kill larvae.',
+      'Reduce predisposing stress: supplemental water during drought, avoid root compaction, and remove competing vegetation.',
+      'Preventive pyrethroid or carbaryl bark sprays applied by a licensed pest control operator before flight season can protect high-value standing trees.',
+      'Salvage logging of dead or dying trees reduces beetle breeding habitat but must happen quickly before adults emerge.'
+    ]
+  },
+  'needle cast': {
+    heading: 'Needle Cast / Foliar Blight',
+    steps: [
+      'Apply a registered fungicide (copper-based products or chlorothalonil) beginning at bud break in spring and repeat every 2–3 weeks through needle elongation.',
+      'Remove and dispose of heavily infected branches in the lower crown to reduce overwintering spore loads.',
+      'Improve air circulation by thinning surrounding trees and avoid overhead irrigation.',
+      'Repeated years of defoliation weaken trees significantly — assess root and stem health and consider supplemental fertilization.'
+    ]
+  },
+  'anthracnose': {
+    heading: 'Anthracnose / Hardwood Foliar Blight',
+    steps: [
+      'Rake and destroy fallen leaves in autumn — they are the primary inoculum source for the following spring.',
+      'Prune out dead twigs and water sprouts in late winter to improve air flow through the canopy.',
+      'Fungicide sprays (chlorothalonil, copper, or mancozeb) applied at bud swell and again at leaf expansion provide good control in high-value trees.',
+      'Most healthy, established hardwoods recover from anthracnose without permanent damage; monitor and withhold treatment in low-severity years.'
+    ]
+  },
+  'armillaria': {
+    heading: 'Armillaria Root Disease',
+    steps: [
+      'There is no effective chemical cure once a tree is infected — remove infected trees including as much of the root system as practical.',
+      'Expose and dry the root collar of adjacent at-risk trees; physically remove any visible white mycelial fans or rhizomorphs.',
+      'In high-value landscape settings, soil fumigation after stump grinding can reduce inoculum, though efficacy is variable.',
+      'Replant with species known to be less susceptible to local Armillaria species; consult your state extension service for regional guidance.'
+    ]
+  },
+  'abiotic': {
+    heading: 'Abiotic Stress (Drought, Heat, Soil, Chemical)',
+    steps: [
+      'Identify and remove the underlying stressor first: restore adequate soil moisture, address compaction, or flush salt/chemical accumulation with deep irrigation.',
+      'Apply a 7–10 cm organic mulch layer over the root zone (not against the trunk) to conserve soil moisture and moderate temperature.',
+      'Avoid fertilizing stressed trees with high-nitrogen products — this can worsen drought stress; a light phosphorus or micronutrient application may help recovery.',
+      'Monitor for secondary opportunistic pests and pathogens, which commonly colonize drought- or chemically-weakened trees.'
+    ]
+  }
+};
+
+function getTreatmentForCauses(causes) {
+  const matched = [];
+  const seen = new Set();
+
+  for (const cause of causes) {
+    const name = (cause.name || '').toLowerCase();
+    let key = null;
+
+    if (name.includes('oak wilt') || name.includes('vascular wilt')) key = 'oak wilt';
+    else if (name.includes('elm')) key = 'dutch elm';
+    else if (name.includes('phytophthora') || name.includes('sudden oak')) key = 'phytophthora';
+    else if (name.includes('ash borer') || name.includes('emerald')) key = 'ash borer';
+    else if (name.includes('bark beetle')) key = 'bark beetle';
+    else if (name.includes('needle cast') || name.includes('foliar blight') || name.includes('needle')) key = 'needle cast';
+    else if (name.includes('anthracnose') || name.includes('foliar') || name.includes('hardwood')) key = 'anthracnose';
+    else if (name.includes('armillaria') || name.includes('root disease')) key = 'armillaria';
+    else if (name.includes('abiotic') || name.includes('drought') || name.includes('stress')) key = 'abiotic';
+
+    if (key && !seen.has(key) && TREATMENT_GUIDE[key]) {
+      seen.add(key);
+      matched.push(TREATMENT_GUIDE[key]);
+    }
+  }
+
+  return matched;
+}
+
+function renderTreatment(causes) {
+  const treatments = getTreatmentForCauses(causes);
+  if (!treatments.length) return '';
+
+  return `
+    <section class="section-block treatment-block">
+      <h4>Treatment &amp; Management</h4>
+      ${treatments
+        .map(
+          (t) => `
+        <div class="treatment-entry">
+          <h5>${escapeHtml(t.heading)}</h5>
+          <ul class="simple-list">
+            ${t.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join('')}
+          </ul>
+        </div>
+      `
+        )
+        .join('')}
+      <p class="treatment-caveat">Treatment decisions should be confirmed with a certified arborist, forester, or plant diagnostic lab. Some products require a licensed applicator.</p>
     </section>
   `;
 }
