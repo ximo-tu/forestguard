@@ -93,17 +93,22 @@ const SOURCE_LIBRARY = {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
     return;
   }
 
   try {
-    const payload = req.body;
-    const diagnosis = await diagnose(payload);
-    res.status(200).json(diagnosis);
+    let payload = req.body;
+    if (typeof payload === 'string') payload = JSON.parse(payload);
+    if (Buffer.isBuffer(payload)) payload = JSON.parse(payload.toString());
+    const diagnosis = await diagnose(payload || {});
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(diagnosis));
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'The diagnosis service hit an unexpected problem.' });
+    console.error('diagnose handler error:', error);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: error.message || 'The diagnosis service hit an unexpected problem.' }));
   }
 }
 
