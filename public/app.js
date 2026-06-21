@@ -243,8 +243,13 @@ form.addEventListener('submit', async (event) => {
 
     const diagnosis = await response.json();
     renderDiagnosis(diagnosis);
+    saveToHistory(diagnosis, payload);
+    sendDiagnosisNotification(diagnosis);
   } catch (error) {
-    renderDiagnosis(createLocalDiagnosis(payload, error));
+    const diagnosis = createLocalDiagnosis(payload, error);
+    renderDiagnosis(diagnosis);
+    saveToHistory(diagnosis, payload);
+    sendDiagnosisNotification(diagnosis);
   }
 });
 
@@ -749,3 +754,404 @@ function escapeHtml(value) {
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
 }
+
+// ─── History ────────────────────────────────────────────────────────────────
+
+const HISTORY_KEY = 'fg-history';
+const MAX_HISTORY = 30;
+const historyDrawer = document.querySelector('#historyDrawer');
+const historyBackdrop = document.querySelector('#historyBackdrop');
+const historyList = document.querySelector('#historyList');
+const historyButton = document.querySelector('#historyButton');
+const closeHistoryButton = document.querySelector('#closeHistoryButton');
+const clearHistoryButton = document.querySelector('#clearHistoryButton');
+
+function getHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); }
+  catch { return []; }
+}
+
+function saveToHistory(diagnosis, payload) {
+  const entry = {
+    id: Date.now().toString(),
+    timestamp: new Date().toISOString(),
+    species: payload.species || 'Unknown species',
+    location: payload.location || '',
+    diagnosisTitle: diagnosis.diagnosisTitle,
+    severity: diagnosis.severity,
+    confidence: diagnosis.confidence,
+    modelMode: diagnosis.modelMode,
+    diagnosis,
+    payload
+  };
+  const history = getHistory();
+  history.unshift(entry);
+  if (history.length > MAX_HISTORY) history.splice(MAX_HISTORY);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+}
+
+function openHistory() {
+  renderHistoryList();
+  historyDrawer.hidden = false;
+  historyBackdrop.hidden = false;
+  historyButton.setAttribute('aria-expanded', 'true');
+}
+
+function closeHistory() {
+  historyDrawer.hidden = true;
+  historyBackdrop.hidden = true;
+  historyButton.setAttribute('aria-expanded', 'false');
+}
+
+function renderHistoryList() {
+  const history = getHistory();
+  if (!history.length) {
+    historyList.innerHTML = '<p class="history-empty">No diagnoses saved yet. Run an assessment to start building history.</p>';
+    return;
+  }
+  historyList.innerHTML = history.map((entry) => {
+    const date = new Date(entry.timestamp);
+    const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const severityClass = entry.severity === 'High' ? 'sev-high' : entry.severity === 'Moderate' ? 'sev-mod' : 'sev-low';
+    return `
+      <button class="history-entry" type="button" data-id="${escapeHtml(entry.id)}">
+        <div class="history-entry-top">
+          <span class="history-title">${escapeHtml(entry.diagnosisTitle)}</span>
+          <span class="history-sev ${severityClass}">${escapeHtml(entry.severity)}</span>
+        </div>
+        <div class="history-entry-meta">
+          <span>${escapeHtml(entry.species)}</span>
+          ${entry.location ? `<span>· ${escapeHtml(entry.location)}</span>` : ''}
+        </div>
+        <div class="history-entry-meta">
+          <span>${dateStr} ${timeStr}</span>
+          <span>· ${escapeHtml(entry.confidence)}% · ${escapeHtml(entry.modelMode || '')}</span>
+        </div>
+      </button>
+    `;
+  }).join('');
+
+  historyList.querySelectorAll('.history-entry').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const entry = getHistory().find((e) => e.id === btn.dataset.id);
+      if (!entry) return;
+      renderDiagnosis(entry.diagnosis);
+      closeHistory();
+    });
+  });
+}
+
+historyButton.addEventListener('click', openHistory);
+closeHistoryButton.addEventListener('click', closeHistory);
+historyBackdrop.addEventListener('click', closeHistory);
+clearHistoryButton.addEventListener('click', () => {
+  localStorage.removeItem(HISTORY_KEY);
+  renderHistoryList();
+});
+
+// ─── Notifications ───────────────────────────────────────────────────────────
+
+const notifButton = document.querySelector('#notifButton');
+let notificationsEnabled = false;
+
+function updateNotifButton() {
+  const supported = 'Notification' in window;
+  const granted = supported && Notification.permission === 'granted';
+  const denied = supported && Notification.permission === 'denied';
+  notificationsEnabled = granted;
+  notifButton.textContent = granted ? '◉' : '◌';
+  notifButton.title = denied ? 'Notifications blocked — check browser settings'
+    : granted ? 'Notifications enabled'
+    : 'Enable notifications';
+  notifButton.dataset.state = granted ? 'on' : denied ? 'denied' : 'off';
+}
+
+async function toggleNotifications() {
+  if (!('Notification' in window)) {
+    notifButton.title = 'Notifications not supported in this browser';
+    return;
+  }
+  if (Notification.permission === 'denied') return;
+  if (Notification.permission === 'granted') {
+    notificationsEnabled = !notificationsEnabled;
+    updateNotifButton();
+    return;
+  }
+  await Notification.requestPermission();
+  updateNotifButton();
+}
+
+function sendDiagnosisNotification(diagnosis) {
+  if (!notificationsEnabled || Notification.permission !== 'granted') return;
+  const isUrgent = diagnosis.severity === 'High';
+  new Notification(`ForestGuard${isUrgent ? ' — Urgent' : ''}: ${diagnosis.diagnosisTitle}`, {
+    body: `Severity: ${diagnosis.severity}  ·  Confidence: ${diagnosis.confidence}%\n${diagnosis.summary?.slice(0, 100) || ''}`,
+    tag: 'fg-diagnosis'
+  });
+}
+
+notifButton.addEventListener('click', toggleNotifications);
+updateNotifButton();
+
+// ─── Demo Mode ───────────────────────────────────────────────────────────────
+
+const DEMO_SCENARIOS = [
+  {
+    id: 'oak-wilt',
+    label: 'Oak Wilt Outbreak',
+    meta: 'White oak · Mixed hardwood · Asheville, NC',
+    description: 'Rapid canopy decline in a clustered pattern after a wet spring. Classic vascular wilt presentation.',
+    badgeSeverity: 'High',
+    payload: {
+      notes: 'Mixed hardwood stand near Asheville, NC. White oaks showing rapid wilting, brown leaf margins, crown thinning, and dark streaking under the bark. Symptoms appear in a tight cluster along a trail edge after a wet spring. Several trees have died in the last 3 weeks.',
+      location: '35.61, -82.55',
+      species: 'White oak',
+      forestType: 'Mixed hardwood',
+      affectedCount: 18,
+      totalTrees: 75,
+      symptoms: ['Wilting', 'Brown leaf margins', 'Canopy thinning']
+    },
+    diagnosis: {
+      diagnosisTitle: 'Likely oak vascular wilt pattern',
+      confidence: 82,
+      severity: 'High',
+      scope: '18 of 75 trees observed (24%)',
+      summary: 'White oak observations with rapid wilting, brown leaf margins, crown thinning, and vascular streaking most closely fit oak wilt or a vascular wilt complex as a first-pass diagnosis. The clustered pattern along a trail edge and rapid progression are consistent with root-graft transmission, which is the primary spread pathway for Ceratocystis fagacearum in the eastern US.',
+      possibleCauses: [
+        { name: 'Oak wilt or vascular wilt complex', likelihood: 'High', rationale: 'White oak with rapid wilting, brown leaf margins, crown thinning, and dark streaking under bark strongly fits the vascular wilt profile. Clustered distribution after wet spring is consistent with root-graft transmission.', sourceIds: ['oak-wilt-review'] },
+        { name: 'Armillaria or root disease', likelihood: 'Possible', rationale: 'Root disease can produce similar crown thinning and mortality patterns, especially in stressed hardwood stands. Should be evaluated at the root collar of declining trees.', sourceIds: ['armillaria-review'] },
+        { name: 'Abiotic stress, drought, soil, or chemical injury', likelihood: 'Possible', rationale: 'Brown leaf margins and wilting can also result from late-season drought or soil disturbance. However, the rapid progression and clustered pattern are more consistent with an infectious cause.', sourceIds: ['abiotic-drought'] }
+      ],
+      sources: [
+        SOURCE_LIBRARY['oak-wilt-review'],
+        SOURCE_LIBRARY['armillaria-review'],
+        SOURCE_LIBRARY['abiotic-drought']
+      ],
+      evidence: [
+        'Reported host species: White oak.',
+        'Forest type: Mixed hardwood.',
+        'Location context: 35.61, -82.55.',
+        'Symptoms selected: Wilting, Brown leaf margins, Canopy thinning.',
+        'Natural-language notes describe rapid progression and clustered stand pattern.',
+        'Affected stand estimate: 24%.'
+      ],
+      nextActions: [
+        'Photograph the whole tree, crown, leaves, bark, root collar, and nearby unaffected trees.',
+        'Map affected and unaffected trees to confirm the cluster is centered on a connected root system.',
+        'Avoid all pruning wounds on oaks from April through July — sap beetles that vector oak wilt are active during this period.',
+        'Check for vascular streaking (brown or tan discoloration under bark) on a recently dead or dying branch.',
+        'Contact your county extension office or state forest health specialist — oak wilt is a reportable disease in some states.',
+        'Do not move firewood or symptomatic material off-site until a diagnosis is confirmed.',
+        'Escalate to a certified arborist, forester, or state forest health specialist within a few days.'
+      ],
+      riskFlags: [
+        'Rapid symptom progression increases concern for an aggressive pest, pathogen, or acute stress.',
+        'A 24% affected share with clustered pattern suggests root-graft transmission is already underway.',
+        'Delaying removal and trenching allows underground fungal spread to adjacent healthy trees.'
+      ],
+      followUpQuestions: [
+        'Is there any visible discoloration (brown or tan streaking) in the sapwood of dying branches?',
+        'Have any oak trees been pruned or wounded in this stand in the past 2–3 months?',
+        'Are the dead trees physically connected — overlapping canopy or proximity suggesting root contact?'
+      ],
+      imageInterpretation: 'No image was attached for this demo scenario.',
+      disclaimer: 'Decision support only — this is a demo scenario with pre-built results. Confirm any real case with a qualified local forester, arborist, extension specialist, or plant diagnostic lab before treatment or removal.',
+      modelMode: 'Demo'
+    }
+  },
+  {
+    id: 'ash-borer',
+    label: 'Emerald Ash Borer',
+    meta: 'Green ash · Urban forest · Ann Arbor, MI',
+    description: 'D-shaped exit holes and serpentine galleries on multiple street ash trees. Canopy thinning across the block.',
+    badgeSeverity: 'Moderate',
+    payload: {
+      notes: 'Street and park green ash trees in Ann Arbor showing canopy thinning from the top down, D-shaped exit holes in the bark, serpentine galleries visible under loose bark, and epicormic shoots sprouting from lower trunk. About 12 trees affected on two adjacent blocks.',
+      location: 'Ann Arbor, Michigan',
+      species: 'Green ash',
+      forestType: 'Urban forest',
+      affectedCount: 12,
+      totalTrees: 40,
+      symptoms: ['Exit holes', 'Canopy thinning']
+    },
+    diagnosis: {
+      diagnosisTitle: 'Likely emerald ash borer infestation',
+      confidence: 88,
+      severity: 'Moderate',
+      scope: '12 of 40 trees observed (30%)',
+      summary: 'Green ash in an urban setting with D-shaped exit holes, serpentine galleries, top-down canopy thinning, and epicormic sprouting is a textbook emerald ash borer presentation. Michigan is a long-established EAB zone. Trees with less than 50% canopy loss may be candidates for treatment; those beyond that threshold are generally safety hazards and should be assessed for removal.',
+      possibleCauses: [
+        { name: 'Emerald ash borer or ash borer complex', likelihood: 'High', rationale: 'D-shaped exit holes (approximately 3–4 mm), serpentine S-shaped galleries under bark, top-down canopy dieback, and epicormic shooting are the diagnostic hallmarks of EAB on ash species. Michigan is a confirmed EAB region.', sourceIds: ['emerald-ash-borer-review'] },
+        { name: 'Bark beetle attack with drought stress', likelihood: 'Possible', rationale: 'Other bark-boring beetles can produce similar exit holes, though typically larger and circular rather than D-shaped. Drought stress can predispose trees to secondary borers. Confirm gallery shape and exit hole geometry.', sourceIds: ['bark-beetle-eruptions', 'abiotic-drought'] }
+      ],
+      sources: [
+        SOURCE_LIBRARY['emerald-ash-borer-review'],
+        SOURCE_LIBRARY['bark-beetle-eruptions'],
+        SOURCE_LIBRARY['abiotic-drought']
+      ],
+      evidence: [
+        'Reported host species: Green ash.',
+        'Forest type: Urban forest.',
+        'Location context: Ann Arbor, Michigan — confirmed EAB quarantine zone.',
+        'Symptoms selected: Exit holes, Canopy thinning.',
+        'Notes describe D-shaped exit holes, serpentine galleries, epicormic sprouting.',
+        'Affected stand estimate: 30%.'
+      ],
+      nextActions: [
+        'Inspect each tree for D-shaped exit holes (3–4 mm wide) and S-shaped larval galleries under loose bark.',
+        'Assess canopy loss percentage for each tree — trees over 50% canopy loss are generally beyond cost-effective treatment.',
+        'Do not move ash logs, branches, or firewood outside the quarantine area.',
+        'Contact a licensed commercial applicator for emamectin benzoate trunk injection (TREE-äge) on trees with less than 50% loss.',
+        'Treatment must be applied in spring before adult emergence — coordinate timing with a local arborist.',
+        'File a report with the Michigan Department of Agriculture if this block has not been previously documented.',
+        'Recheck the stand in 7 to 14 days and compare symptom progression with new photos.'
+      ],
+      riskFlags: [
+        'Michigan is in the core of the established EAB range — spread to untreated neighboring trees is expected.',
+        'Urban ash trees with 50%+ canopy loss become structural hazards quickly; prioritize a safety assessment.',
+        'EAB movement regulations apply — confirm disposal rules with local authorities before removing wood.'
+      ],
+      followUpQuestions: [
+        'What percentage of each tree\'s canopy has been lost — less than 30%, 30–50%, or over 50%?',
+        'Have any adjacent ash trees on neighboring blocks already been removed or treated?',
+        'Are the exit holes clearly D-shaped (a key distinguishing feature from round holes left by other borers)?'
+      ],
+      imageInterpretation: 'No image was attached for this demo scenario.',
+      disclaimer: 'Decision support only — this is a demo scenario with pre-built results. Confirm any real case with a qualified local forester, arborist, extension specialist, or plant diagnostic lab before treatment or removal.',
+      modelMode: 'Demo'
+    }
+  },
+  {
+    id: 'bark-beetle',
+    label: 'Mountain Pine Beetle + Drought',
+    meta: 'Lodgepole pine · Montane conifer · Steamboat Springs, CO',
+    description: 'Rapid red-needle crown fade across multiple ridge slopes. Pitch tubes and boring dust confirm active beetle attack under drought stress.',
+    badgeSeverity: 'High',
+    payload: {
+      notes: 'Lodgepole pine stand on south-facing slopes above Steamboat Springs. Rapid needle reddening across the upper crown of multiple trees. Pitch tubes (white, popcorn-like resin masses) on lower trunk. Fine reddish boring dust at the base. Several trees fully red in crown — likely dead. Drought conditions have been severe for the past two summers.',
+      location: 'Steamboat Springs, Colorado',
+      species: 'Lodgepole pine',
+      forestType: 'Boreal or montane conifer',
+      affectedCount: 60,
+      totalTrees: 200,
+      symptoms: ['Pitch tubes', 'Needle discoloration', 'Canopy thinning']
+    },
+    diagnosis: {
+      diagnosisTitle: 'Active bark beetle eruption with drought predisposition',
+      confidence: 85,
+      severity: 'High',
+      scope: '60 of 200 trees observed (30%)',
+      summary: 'Lodgepole pine on drought-stressed south-facing slopes with pitch tubes, boring dust, and rapid crown fade is a well-recognized bark beetle outbreak pattern. Prolonged drought reduces resin production, weakening tree defenses against mass attack. The 30% affected estimate on a prominent landscape feature suggests the outbreak is in an active expansion phase, not an isolated event.',
+      possibleCauses: [
+        { name: 'Bark beetle attack with drought stress', likelihood: 'High', rationale: 'Pitch tubes, reddish boring dust, and rapid top-down crown reddening in drought-stressed lodgepole pine are the diagnostic profile for mountain pine beetle (Dendroctonus ponderosae). South-facing slope and multi-year drought further elevate the risk.', sourceIds: ['bark-beetle-eruptions', 'abiotic-drought'] },
+        { name: 'Abiotic stress, drought, soil, or chemical injury', likelihood: 'Moderate', rationale: 'Drought stress alone can cause needle browning and crown dieback in conifers, and likely predisposed these trees to beetle attack. Separating primary drought injury from secondary beetle colonization requires close inspection.', sourceIds: ['abiotic-drought'] },
+        { name: 'Needle cast or foliar blight', likelihood: 'Possible', rationale: 'Foliar pathogens can produce needle discoloration that resembles early beetle-related crown fade. However, the presence of pitch tubes and boring dust makes a foliar pathogen unlikely as the primary cause.', sourceIds: ['swiss-needle-cast'] }
+      ],
+      sources: [
+        SOURCE_LIBRARY['bark-beetle-eruptions'],
+        SOURCE_LIBRARY['abiotic-drought'],
+        SOURCE_LIBRARY['swiss-needle-cast']
+      ],
+      evidence: [
+        'Reported host species: Lodgepole pine.',
+        'Forest type: Boreal or montane conifer.',
+        'Location context: Steamboat Springs, Colorado — historic MPB outbreak zone.',
+        'Symptoms selected: Pitch tubes, Needle discoloration, Canopy thinning.',
+        'Notes describe boring dust, pitch tubes, and south-facing drought-exposed aspect.',
+        'Affected stand estimate: 30%.'
+      ],
+      nextActions: [
+        'Confirm active attack by checking for reddish boring dust and S-shaped egg galleries under bark on a recently dead or dying tree.',
+        'Do not attempt to treat currently infested trees — remove and destroy (debark, chip, or burn) infested material before adult emergence in early summer.',
+        'Map red-crowned trees by GPS and compare to aerial imagery to estimate outbreak extent across the ridge.',
+        'Consult the Colorado State Forest Service or USFS Rocky Mountain Region for current outbreak maps and salvage guidance.',
+        'Assess fire risk — beetle-killed lodgepole creates significant ladder fuel loads; coordinate with local fire management.',
+        'Prioritize removal of trees that pose a hazard to roads, structures, or high-use recreation areas.',
+        'Escalate to a certified arborist, forester, or state forest health specialist within a few days.'
+      ],
+      riskFlags: [
+        'A 30% affected stand estimate with rapid progression indicates an active outbreak, not isolated mortality.',
+        'South-facing slopes under multi-year drought are the highest-risk sites — expect continued expansion.',
+        'Beetle-killed conifer significantly increases wildfire risk on this landscape — flag for fire management review.'
+      ],
+      followUpQuestions: [
+        'How many of the red-crowned trees were already fully brown (dead) versus showing early fade?',
+        'Has the state forest service or USFS mapped this stand in their current aerial survey?',
+        'Are there any green, apparently healthy trees intermixed, or is the mortality contiguous across the slope?'
+      ],
+      imageInterpretation: 'No image was attached for this demo scenario.',
+      disclaimer: 'Decision support only — this is a demo scenario with pre-built results. Confirm any real case with a qualified local forester, arborist, extension specialist, or plant diagnostic lab before treatment or removal.',
+      modelMode: 'Demo'
+    }
+  }
+];
+
+const demoButton = document.querySelector('#demoButton');
+const demoModal = document.querySelector('#demoModal');
+const closeDemoModal = document.querySelector('#closeDemoModal');
+const demoScenarioGrid = document.querySelector('#demoScenarioGrid');
+
+function openDemoModal() {
+  renderDemoScenarios();
+  demoModal.hidden = false;
+}
+
+function closeDemoModalFn() {
+  demoModal.hidden = true;
+}
+
+function renderDemoScenarios() {
+  demoScenarioGrid.innerHTML = DEMO_SCENARIOS.map((s) => {
+    const sevClass = s.badgeSeverity === 'High' ? 'sev-high' : 'sev-mod';
+    return `
+      <button class="demo-card" type="button" data-scenario="${escapeHtml(s.id)}">
+        <div class="demo-card-top">
+          <span class="demo-card-title">${escapeHtml(s.label)}</span>
+          <span class="history-sev ${sevClass}">${escapeHtml(s.badgeSeverity)}</span>
+        </div>
+        <p class="demo-card-meta">${escapeHtml(s.meta)}</p>
+        <p class="demo-card-desc">${escapeHtml(s.description)}</p>
+      </button>
+    `;
+  }).join('');
+
+  demoScenarioGrid.querySelectorAll('.demo-card').forEach((card) => {
+    card.addEventListener('click', () => {
+      const scenario = DEMO_SCENARIOS.find((s) => s.id === card.dataset.scenario);
+      if (!scenario) return;
+      loadDemoScenario(scenario);
+      closeDemoModalFn();
+    });
+  });
+}
+
+function loadDemoScenario(scenario) {
+  const p = scenario.payload;
+  form.reset();
+  clearImage();
+  document.querySelectorAll('.chip-grid .is-selected').forEach((c) => c.classList.remove('is-selected'));
+
+  fields.notes.value = p.notes || '';
+  fields.location.value = p.location || '';
+  fields.species.value = p.species || '';
+  if (p.forestType) fields.forestType.value = p.forestType;
+  if (p.affectedCount != null) fields.affectedCount.value = p.affectedCount;
+  if (p.totalTrees != null) fields.totalTrees.value = p.totalTrees;
+
+  document.querySelectorAll('.chip-grid button').forEach((chip) => {
+    chip.classList.toggle('is-selected', (p.symptoms || []).includes(chip.dataset.symptom));
+  });
+
+  updateAffectedRatio();
+  renderDiagnosis(scenario.diagnosis);
+  saveToHistory(scenario.diagnosis, p);
+  sendDiagnosisNotification(scenario.diagnosis);
+}
+
+demoButton.addEventListener('click', openDemoModal);
+closeDemoModal.addEventListener('click', closeDemoModalFn);
+demoModal.addEventListener('click', (e) => { if (e.target === demoModal) closeDemoModalFn(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { closeDemoModalFn(); closeHistory(); }
+});
