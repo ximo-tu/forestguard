@@ -108,7 +108,7 @@ export default async function handler(req, res) {
 }
 
 async function diagnose(payload) {
-  if (process.env.OPENAI_API_KEY) {
+  if (process.env.CEREBRAS_API_KEY) {
     try {
       const modelDiagnosis = await diagnoseWithModel(payload);
       return normalizeDiagnosis(modelDiagnosis, 'Live AI');
@@ -152,51 +152,39 @@ async function diagnoseWithModel(payload) {
     2
   );
 
-  const content = [
+  const userContent = [
     {
-      type: 'input_text',
-      text: `Assess this forest health case. Return only JSON matching the requested schema. For each possible cause, include sourceIds using only IDs from the curated source library. Do not invent citations.\n\nCase:\n${textPayload}\n\nCurated source library:\n${sourceGuide}`
+      type: 'text',
+      text: `Assess this forest health case. Return only valid JSON matching the schema below exactly. For each possible cause, include sourceIds using only IDs from the curated source library. Do not invent citations.\n\nSchema:\n${JSON.stringify(diagnosisSchema(), null, 2)}\n\nCase:\n${textPayload}\n\nCurated source library:\n${sourceGuide}`
     }
   ];
 
   if (payload.imageDataUrl) {
-    content.push({
-      type: 'input_image',
-      image_url: payload.imageDataUrl
+    userContent.push({
+      type: 'image_url',
+      image_url: { url: payload.imageDataUrl }
     });
   }
 
-  const response = await fetch('https://api.openai.com/v1/responses', {
+  const response = await fetchWithRetry('https://api.cerebras.ai/v1/chat/completions', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      Authorization: `Bearer ${process.env.CEREBRAS_API_KEY}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model: process.env.AI_MODEL || 'gpt-4.1-mini',
-      input: [
+      model: process.env.AI_MODEL || 'llama-3.3-70b',
+      messages: [
         {
           role: 'system',
-          content: [
-            {
-              type: 'input_text',
-              text: 'You are a cautious forest pathology triage assistant. Provide decision support, not a final lab diagnosis. Prefer uncertainty over overclaiming. Cite only the provided source IDs, and mention when lab confirmation or a local extension specialist is needed.'
-            }
-          ]
+          content: 'You are a cautious forest pathology triage assistant. Provide decision support, not a final lab diagnosis. Prefer uncertainty over overclaiming. Cite only the provided source IDs, and mention when lab confirmation or a local extension specialist is needed. Always respond with valid JSON only, no markdown fences.'
         },
         {
           role: 'user',
-          content
+          content: userContent
         }
       ],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'forest_diagnosis',
-          schema: diagnosisSchema(),
-          strict: true
-        }
-      }
+      response_format: { type: 'json_object' }
     })
   });
 
@@ -206,15 +194,27 @@ async function diagnoseWithModel(payload) {
   }
 
   const data = await response.json();
-  const outputText =
-    data.output_text ||
-    data.output?.flatMap((item) => item.content || []).find((item) => item.type === 'output_text')?.text;
+  const outputText = data.choices?.[0]?.message?.content;
 
   if (!outputText) {
     throw new Error('The model did not return a readable diagnosis.');
   }
 
   return JSON.parse(outputText);
+}
+
+async function fetchWithRetry(url, options, maxAttempts = 3) {
+  let lastResponse;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    lastResponse = await fetch(url, options);
+    if (lastResponse.status !== 429 || attempt === maxAttempts) {
+      return lastResponse;
+    }
+    const retryAfter = lastResponse.headers.get('Retry-After');
+    const delay = retryAfter ? Number(retryAfter) * 1000 : attempt * 1000;
+    await new Promise((r) => setTimeout(r, delay));
+  }
+  return lastResponse;
 }
 
 function diagnosisSchema() {
@@ -565,7 +565,7 @@ function buildRiskFlags(payload, ratio, caseText) {
   if (ratio >= 0.35) flags.push('A large affected share suggests urgent follow-up or a stand-level stressor.');
   if (caseText.includes('rapid') || caseText.includes('sudden')) flags.push('Rapid symptom progression increases concern for an aggressive pest, pathogen, or acute stress.');
   if (caseText.includes('exit holes') || caseText.includes('boring dust')) flags.push('Wood-boring insect signs can require containment or reporting depending on local rules.');
-  if (payload.imageDataUrl && !process.env.OPENAI_API_KEY) flags.push('Photo interpretation is limited in local fallback mode.');
+  if (payload.imageDataUrl && !process.env.CEREBRAS_API_KEY) flags.push('Photo interpretation is limited in local fallback mode.');
   if (!payload.location) flags.push('Regional disease pressure cannot be weighed well without a location.');
   return flags;
 }
