@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ForestGuard Forest Diagnosis</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true">C</div>
+          <div>
+            <h1>ForestGuard</h1>
+            <p>Forest disease triage from field observations.</p>
+          </div>
+        </div>
+        <div class="status-strip" aria-label="Capabilities">
+          <span>GPS-aware</span>
+          <span>Image optional</span>
+          <span>Decision support</span>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="tool-panel intake-panel" aria-labelledby="intake-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Field Intake</p>
+              <h2 id="intake-title">Describe the forest issue</h2>
+            </div>
+            <button class="ghost-button" id="loadSample" type="button">Sample</button>
+          </div>
+
+          <form id="diagnosisForm" class="diagnosis-form">
+            <label class="field-block field-block-wide" for="notes">
+              <span>Natural-language observations</span>
+              <textarea
+                id="notes"
+                name="notes"
+                rows="6"
+                placeholder="Example: Mixed hardwood stand near Asheville. White oaks have rapid wilting, brown leaf margins, crown thinning, and dark streaking under bark. About 18 of 75 trees are affected."
+              ></textarea>
+            </label>
+
+            <div class="field-grid">
+              <label class="field-block" for="location">
+                <span>GPS or location</span>
+                <div class="input-with-action">
+                  <input id="location" name="location" type="text" placeholder="35.61, -82.55 or county/state" />
+                  <button id="gpsButton" class="icon-button" type="button" title="Use current GPS location" aria-label="Use current GPS location">◎</button>
+                </div>
+                <small id="gpsStatus">Manual entry is fine.</small>
+              </label>
+
+              <label class="field-block" for="species">
+                <span>Tree species</span>
+                <input id="species" name="species" type="text" placeholder="Oak, pine, ash, elm..." />
+              </label>
+
+              <label class="field-block" for="forestType">
+                <span>Forest type</span>
+                <select id="forestType" name="forestType">
+                  <option value="">Select if known</option>
+                  <option>Mixed hardwood</option>
+                  <option>Conifer plantation</option>
+                  <option>Oak woodland</option>
+                  <option>Riparian forest</option>
+                  <option>Urban forest</option>
+                  <option>Coastal evergreen</option>
+                  <option>Boreal or montane conifer</option>
+                  <option>Unknown or mixed</option>
+                </select>
+              </label>
+
+              <div class="field-block count-block">
+                <span>Affected trees</span>
+                <div class="count-row">
+                  <input id="affectedCount" name="affectedCount" type="number" min="0" inputmode="numeric" placeholder="18" />
+                  <span>of</span>
+                  <input id="totalTrees" name="totalTrees" type="number" min="0" inputmode="numeric" placeholder="75" />
+                </div>
+              </div>
+            </div>
+
+            <fieldset class="symptom-set">
+              <legend>Symptoms</legend>
+              <div class="chip-grid" id="symptomChips">
+                <button type="button" data-symptom="Wilting">Wilting</button>
+                <button type="button" data-symptom="Leaf spots">Leaf spots</button>
+                <button type="button" data-symptom="Brown leaf margins">Brown margins</button>
+                <button type="button" data-symptom="Canopy thinning">Canopy thinning</button>
+                <button type="button" data-symptom="Bark cankers">Bark cankers</button>
+                <button type="button" data-symptom="Pitch tubes">Pitch tubes</button>
+                <button type="button" data-symptom="Exit holes">Exit holes</button>
+                <button type="button" data-symptom="Mushrooms at base">Mushrooms at base</button>
+                <button type="button" data-symptom="Needle discoloration">Needle discoloration</button>
+                <button type="button" data-symptom="Root decay">Root decay</button>
+              </div>
+              <input id="customSymptoms" name="customSymptoms" type="text" placeholder="Other symptoms, separated by commas" />
+            </fieldset>
+
+            <div class="upload-zone" id="uploadZone">
+              <input id="imageInput" name="imageInput" type="file" accept="image/*" />
+              <div class="upload-copy">
+                <strong>Optional field image</strong>
+                <span>Drop a photo or choose one from your device.</span>
+              </div>
+              <img id="imagePreview" alt="Uploaded preview" hidden />
+              <button id="removeImage" class="ghost-button compact" type="button" hidden>Remove</button>
+            </div>
+
+            <div class="form-actions">
+              <button id="analyzeButton" class="primary-button" type="submit">Run Diagnosis</button>
+              <button id="clearButton" class="ghost-button" type="button">Clear</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="tool-panel result-panel" aria-labelledby="result-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Assessment</p>
+              <h2 id="result-title">Diagnosis output</h2>
+            </div>
+            <span class="mode-pill" id="modePill">Ready</span>
+          </div>
+
+          <div id="results" class="results empty-state">
+            <div class="empty-illustration" aria-hidden="true"></div>
+            <h3>No diagnosis yet</h3>
+            <p>Enter what you observed in the field, add any known stand details, then run the assessment.</p>
+          </div>
+        </section>
+
+        <aside class="forest-context" aria-label="Forest health context">
+          <div class="context-overlay">
+            <p class="eyebrow">Field Lens</p>
+            <h2>Turn scattered observations into a structured first pass.</h2>
+            <p>
+              The assessment weighs species, pattern, location, affected-tree ratio, and symptom clusters, then returns likely causes and next actions.
+            </p>
+            <div class="context-stat">
+              <strong id="affectedRatioPreview">0%</strong>
+              <span>affected stand estimate</span>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>
